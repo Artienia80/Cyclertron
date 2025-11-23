@@ -24,7 +24,7 @@ public class OrebitEngine {
     private AbsoluteDate currentDate;
     private List<PlanetState> planets;
     private List<SpacecraftState> spacecraft;
-    private double timeSpeed = 1.0;
+    private double timeSpeed = 1.0; // days per second (real-time)
     private double elapsedDays = 0;
     private int spacecraftCounter = 0;
     private Random colorRandom;
@@ -188,23 +188,16 @@ public class OrebitEngine {
         }
     }
 
-    public void spawnSpacecraft(double x, double y) {
+    public void spawnSpacecraft(Vector3D position, Vector3D velocity) {
         try {
             spacecraftCounter++;
 
-            Vector3D position = new Vector3D(x, y, 0);
-
-            // Random velocity for chaos!
-            double vx = (colorRandom.nextDouble() - 0.5) * 60000.0; // +/- 30 km/s
-            double vy = (colorRandom.nextDouble() - 0.5) * 60000.0;
-            Vector3D velocity = new Vector3D(vx, vy, 0);
-
             System.out.println(String.format("SC-%d spawned at (%.4f AU, %.4f AU) with velocity (%.2f, %.2f) km/s",
                     spacecraftCounter,
-                    x / Constants.IAU_2012_ASTRONOMICAL_UNIT,
-                    y / Constants.IAU_2012_ASTRONOMICAL_UNIT,
-                    vx / 1000.0,
-                    vy / 1000.0));
+                    position.getX() / Constants.IAU_2012_ASTRONOMICAL_UNIT,
+                    position.getY() / Constants.IAU_2012_ASTRONOMICAL_UNIT,
+                    velocity.getX() / 1000.0,
+                    velocity.getY() / 1000.0));
 
             // Random color
             Color color = new Color(
@@ -225,9 +218,16 @@ public class OrebitEngine {
     }
 
     public void update() {
-        double dt = timeSpeed * 86400.0; // Convert days to seconds
+        // Fixed timestep: 60 Hz = 0.016 seconds per frame
+        double dtSeconds = 0.016;
+
+        // dtSeconds is the real-time elapsed (0.016 for 60 Hz)
+        // timeSpeed is in days per second
+        double simulatedDays = timeSpeed * dtSeconds;
+        double dt = simulatedDays * 86400.0; // Convert to seconds for physics
+
         currentDate = currentDate.shiftedBy(dt);
-        elapsedDays += timeSpeed;
+        elapsedDays += simulatedDays;
 
         // Update planets on their Keplerian rails (unaffected by spacecraft)
         for (PlanetState planet : planets) {

@@ -17,6 +17,7 @@ import java.util.List;
 public class OrebitSimulationPanel extends JPanel {
     private OrebitEngine engine;
     private Timer renderTimer;
+    private Timer physicsTimer;
     private JButton playPauseButton;
     private JButton stopButton;
     private JButton speedUpButton;
@@ -27,6 +28,7 @@ public class OrebitSimulationPanel extends JPanel {
     private JButton jumpToDateButton;
     private JButton mainZoomInButton;
     private JButton mainZoomOutButton;
+    private JButton spawnModeButton;
     private JSpinner speedSpinner;
     private JComboBox<TimeUnit> timeUnitCombo;
     private JLabel infoLabel;
@@ -41,6 +43,9 @@ public class OrebitSimulationPanel extends JPanel {
 
     private double mainZoom = 120.0; // AU to pixels - adjustable zoom
     private List<SpacecraftState> spacecraft;
+
+    // Spawn mode: "Orbit", "Random", "Freefall"
+    private String spawnMode = "Orbit";
 
     public OrebitSimulationPanel() {
         setLayout(new BorderLayout());
@@ -80,13 +85,13 @@ public class OrebitSimulationPanel extends JPanel {
             @Override
             public void mouseClicked(MouseEvent e) {
                 if (SwingUtilities.isRightMouseButton(e)) {
-                    spawnSpacecraft(e.getX(), e.getY());
+                    spawnSpacecraftInMainView(e.getX(), e.getY());
                 }
             }
         });
 
         // Detail panel
-        detailPanel = new DetailPanel(engine);
+        detailPanel = new DetailPanel(engine, this);
 
         splitPane.setLeftComponent(mainPanel);
         splitPane.setRightComponent(detailPanel);
@@ -99,14 +104,19 @@ public class OrebitSimulationPanel extends JPanel {
 
         updateLabels();
 
-        // Render timer (60 FPS)
-        renderTimer = new Timer(16, e -> {
+        // Physics timer (60 Hz physics updates)
+        physicsTimer = new Timer(16, e -> {
             if (!isPaused) {
-                engine.update();
+                engine.update(); // Update with timestep
                 updateTrajectories();
                 updateSpacecraftTrajectories();
                 updateLabels();
             }
+        });
+        physicsTimer.start();
+
+        // Render timer (60 FPS)
+        renderTimer = new Timer(16, e -> {
             mainPanel.repaint();
             detailPanel.repaint();
         });
@@ -127,8 +137,8 @@ public class OrebitSimulationPanel extends JPanel {
         // Date controls
         mainControlPanel.add(createDatePanel());
 
-        // Zoom controls
-        mainControlPanel.add(createZoomPanel());
+        // Zoom and spawn mode controls
+        mainControlPanel.add(createZoomAndSpawnPanel());
 
         // Info panel
         mainControlPanel.add(createInfoPanel());
@@ -218,7 +228,7 @@ public class OrebitSimulationPanel extends JPanel {
             updateLabels();
         });
 
-        JLabel perLabel = new JLabel("per frame");
+        JLabel perLabel = new JLabel("per second");
         perLabel.setForeground(Color.WHITE);
 
         speedPanel.add(speedLabel);
@@ -254,7 +264,7 @@ public class OrebitSimulationPanel extends JPanel {
         return datePanel;
     }
 
-    private JPanel createZoomPanel() {
+    private JPanel createZoomAndSpawnPanel() {
         JPanel zoomPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
         zoomPanel.setBackground(new Color(30, 30, 30));
 
@@ -302,6 +312,13 @@ public class OrebitSimulationPanel extends JPanel {
             detailPanel.repaint();
         });
 
+        // Spawn mode button
+        JLabel spawnLabel = new JLabel("  |  Spawn Mode:");
+        spawnLabel.setForeground(Color.WHITE);
+
+        spawnModeButton = new JButton("Mode: Orbit");
+        spawnModeButton.addActionListener(e -> cycleSpawnMode());
+
         zoomPanel.add(zoomLabel);
         zoomPanel.add(mainZoomInButton);
         zoomPanel.add(mainZoomOutButton);
@@ -310,6 +327,8 @@ public class OrebitSimulationPanel extends JPanel {
         zoomPanel.add(detailZoomInButton);
         zoomPanel.add(detailZoomOutButton);
         zoomPanel.add(detailZoomResetButton);
+        zoomPanel.add(spawnLabel);
+        zoomPanel.add(spawnModeButton);
 
         return zoomPanel;
     }
@@ -327,12 +346,31 @@ public class OrebitSimulationPanel extends JPanel {
         return infoPanel;
     }
 
+    private void cycleSpawnMode() {
+        switch (spawnMode) {
+            case "Orbit":
+                spawnMode = "Random";
+                break;
+            case "Random":
+                spawnMode = "Freefall";
+                break;
+            case "Freefall":
+                spawnMode = "Orbit";
+                break;
+        }
+        spawnModeButton.setText("Mode: " + spawnMode);
+    }
+
+    public String getSpawnMode() {
+        return spawnMode;
+    }
+
     private void togglePause() {
         isPaused = !isPaused;
         playPauseButton.setText(isPaused ? "Play" : "Pause");
     }
 
-    private void spawnSpacecraft(int screenX, int screenY) {
+    private void spawnSpacecraftInMainView(int screenX, int screenY) {
         int centerX = 550;
         int centerY = 400;
 
@@ -340,13 +378,74 @@ public class OrebitSimulationPanel extends JPanel {
         double x = (screenX - centerX) * Constants.IAU_2012_ASTRONOMICAL_UNIT / mainZoom;
         double y = (screenY - centerY) * Constants.IAU_2012_ASTRONOMICAL_UNIT / mainZoom;
 
-        // Spawn with zero velocity
-        engine.spawnSpacecraft(x, y);
+        Vector3D position = new Vector3D(x, y, 0);
+
+        // Determine velocity based on spawn mode
+        Vector3D velocity = calculateSpawnVelocity(position);
+
+        engine.spawnSpacecraft(position, velocity);
         spacecraft = engine.getSpacecraft();
 
-        System.out.println(String.format("Spawned spacecraft at (%.4f AU, %.4f AU)",
+        System.out.println(String.format("Spawned spacecraft at (%.4f AU, %.4f AU) with mode %s",
                 x / Constants.IAU_2012_ASTRONOMICAL_UNIT,
-                y / Constants.IAU_2012_ASTRONOMICAL_UNIT));
+                y / Constants.IAU_2012_ASTRONOMICAL_UNIT,
+                spawnMode));
+    }
+
+    public void spawnSpacecraftAtPosition(Vector3D position) {
+        Vector3D velocity = calculateSpawnVelocity(position);
+        engine.spawnSpacecraft(position, velocity);
+        spacecraft = engine.getSpacecraft();
+    }
+
+    private Vector3D calculateSpawnVelocity(Vector3D position) {
+        final double G = 6.67430e-11;
+
+        switch (spawnMode) {
+            case "Freefall":
+                return new Vector3D(0, 0, 0);
+
+            case "Random":
+                double angle = Math.random() * 2 * Math.PI;
+                double speed = (Math.random() * 60000.0); // 0-60 km/s
+                return new Vector3D(Math.cos(angle) * speed, Math.sin(angle) * speed, 0);
+
+            case "Orbit":
+            default:
+                // Find nearest body and calculate orbital velocity
+                Vector3D sunPos = new Vector3D(0, 0, 0);
+                Vector3D earthPos = engine.getPlanets().get(0).getPosition();
+                Vector3D marsPos = engine.getPlanets().get(1).getPosition();
+
+                // Calculate distances to each body
+                double distToSun = position.subtract(sunPos).getNorm();
+                double distToEarth = position.subtract(earthPos).getNorm();
+                double distToMars = position.subtract(marsPos).getNorm();
+
+                Vector3D centralBody;
+                double centralMass;
+
+                // Determine which body we're closest to
+                if (distToEarth < distToSun && distToEarth < distToMars) {
+                    centralBody = earthPos;
+                    centralMass = 5.972e24; // Earth mass
+                } else if (distToMars < distToSun && distToMars < distToEarth) {
+                    centralBody = marsPos;
+                    centralMass = 6.39e23; // Mars mass
+                } else {
+                    centralBody = sunPos;
+                    centralMass = 1.989e30; // Sun mass
+                }
+
+                // Calculate orbital velocity: v = sqrt(GM/r)
+                Vector3D r = position.subtract(centralBody);
+                double distance = r.getNorm();
+                double orbitalSpeed = Math.sqrt(G * centralMass / distance);
+
+                // Velocity perpendicular to radius vector
+                Vector3D perpendicular = new Vector3D(-r.getY(), r.getX(), 0).normalize();
+                return perpendicular.scalarMultiply(orbitalSpeed);
+        }
     }
 
     private void updateSpeedSpinner() {
@@ -410,7 +509,7 @@ public class OrebitSimulationPanel extends JPanel {
     }
 
     private void updateLabels() {
-        infoLabel.setText(String.format("Speed: %.2f days/frame | Elapsed: %.1f days | Main Zoom: %.1f",
+        infoLabel.setText(String.format("Speed: %.2f days/sec | Elapsed: %.1f days | Main Zoom: %.1f",
                 engine.getTimeSpeed(), engine.getElapsedDays(), mainZoom));
 
         AbsoluteDate currentDate = engine.getCurrentDate();
