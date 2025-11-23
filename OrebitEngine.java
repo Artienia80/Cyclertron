@@ -4,14 +4,10 @@ import org.orekit.orbits.KeplerianOrbit;
 import org.orekit.orbits.Orbit;
 import org.orekit.orbits.PositionAngleType;
 import org.orekit.propagation.analytical.KeplerianPropagator;
-import org.orekit.propagation.numerical.NumericalPropagator;
 import org.orekit.time.AbsoluteDate;
 import org.orekit.time.TimeScalesFactory;
 import org.orekit.utils.Constants;
-import org.orekit.utils.PVCoordinates;
 import org.hipparchus.geometry.euclidean.threed.Vector3D;
-import org.hipparchus.ode.nonstiff.DormandPrince853Integrator;
-import org.orekit.forces.gravity.NewtonianAttraction;
 
 import java.awt.*;
 import java.time.LocalDateTime;
@@ -20,7 +16,7 @@ import java.util.List;
 import java.util.Random;
 
 /**
- * Physics engine using Orekit for accurate orbital propagation
+ * Physics engine using Orekit for planets (on rails) and n-body physics for spacecraft
  */
 public class OrebitEngine {
     private Frame sunCentricFrame;
@@ -39,9 +35,15 @@ public class OrebitEngine {
             {1.52371034, 0.09339410, 1.84969142, -4.55343205, -23.94362959, 49.55953891}  // Mars
     };
 
+    // Real masses (kg)
+    private static final double SUN_MASS = 1.989e30;
+    private static final double EARTH_MASS = 5.972e24;
+    private static final double MARS_MASS = 6.39e23;
+
     public OrebitEngine() {
         try {
             System.out.println("Initializing orbital mechanics engine...");
+            System.out.println("Planets on rails (Keplerian orbits), spacecraft use n-body physics");
             sunCentricFrame = FramesFactory.getEME2000();
             initialDate = new AbsoluteDate(2000, 1, 1, 12, 0, 0.0, TimeScalesFactory.getTT());
             currentDate = initialDate;
@@ -106,7 +108,7 @@ public class OrebitEngine {
             MoonState moon = new MoonState("Moon", moonPropagator, new Color(200, 200, 200), 8, moonA);
             earth.setMoon(moon);
 
-            System.out.println("Created Earth with Moon");
+            System.out.println("Created Earth with Moon (on Keplerian rails)");
             return earth;
 
         } catch (Exception e) {
@@ -176,7 +178,7 @@ public class OrebitEngine {
             mars.addMoon(phobos);
             mars.addMoon(deimos);
 
-            System.out.println("Created Mars with Phobos and Deimos");
+            System.out.println("Created Mars with Phobos and Deimos (on Keplerian rails)");
             return mars;
 
         } catch (Exception e) {
@@ -186,46 +188,23 @@ public class OrebitEngine {
         }
     }
 
-    private void createSpacecraft() {
-        // Removed - spacecraft are now spawned by user clicks
-    }
-
     public void spawnSpacecraft(double x, double y) {
         try {
             spacecraftCounter++;
 
-            // Create spacecraft at specified position with zero velocity
             Vector3D position = new Vector3D(x, y, 0);
-            Vector3D velocity = new Vector3D(0, 0, 0);
-            PVCoordinates pv = new PVCoordinates(position, velocity);
 
-            // Create numerical propagator
-            double minStep = 0.001;
-            double maxStep = 1000.0;
-            double positionTolerance = 10.0;
-            DormandPrince853Integrator integrator = new DormandPrince853Integrator(
-                    minStep, maxStep, positionTolerance, positionTolerance);
+            // Random velocity for chaos!
+            double vx = (colorRandom.nextDouble() - 0.5) * 60000.0; // +/- 30 km/s
+            double vy = (colorRandom.nextDouble() - 0.5) * 60000.0;
+            Vector3D velocity = new Vector3D(vx, vy, 0);
 
-            NumericalPropagator propagator = new NumericalPropagator(integrator);
-
-            // Use Cartesian orbit type to avoid conversion issues
-            propagator.setOrbitType(org.orekit.orbits.OrbitType.CARTESIAN);
-
-            // Initialize with position and velocity (not orbit)
-            org.orekit.orbits.CartesianOrbit cartesianOrbit =
-                    new org.orekit.orbits.CartesianOrbit(
-                            pv,
-                            sunCentricFrame,
-                            currentDate,
-                            Constants.IAU_2015_NOMINAL_SUN_GM);
-
-            org.orekit.propagation.SpacecraftState initialState =
-                    new org.orekit.propagation.SpacecraftState(cartesianOrbit, 100.0); // 100 kg mass
-
-            propagator.resetInitialState(initialState);
-
-            // Add Sun's gravity
-            propagator.addForceModel(new NewtonianAttraction(Constants.IAU_2015_NOMINAL_SUN_GM));
+            System.out.println(String.format("SC-%d spawned at (%.4f AU, %.4f AU) with velocity (%.2f, %.2f) km/s",
+                    spacecraftCounter,
+                    x / Constants.IAU_2012_ASTRONOMICAL_UNIT,
+                    y / Constants.IAU_2012_ASTRONOMICAL_UNIT,
+                    vx / 1000.0,
+                    vy / 1000.0));
 
             // Random color
             Color color = new Color(
@@ -234,11 +213,10 @@ public class OrebitEngine {
                     100 + colorRandom.nextInt(156)
             );
 
-            SpacecraftState sc = new SpacecraftState("SC-" + spacecraftCounter, propagator, color, 100.0);
-            sc.update(currentDate); // Initialize position
+            SpacecraftState sc = new SpacecraftState("SC-" + spacecraftCounter, position, velocity, color, 100.0);
             spacecraft.add(sc);
 
-            System.out.println("Spawned spacecraft SC-" + spacecraftCounter);
+            System.out.println("Successfully spawned SC-" + spacecraftCounter);
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -247,16 +225,76 @@ public class OrebitEngine {
     }
 
     public void update() {
-        currentDate = currentDate.shiftedBy(timeSpeed * 86400.0);
+        double dt = timeSpeed * 86400.0; // Convert days to seconds
+        currentDate = currentDate.shiftedBy(dt);
         elapsedDays += timeSpeed;
 
+        // Update planets on their Keplerian rails (unaffected by spacecraft)
         for (PlanetState planet : planets) {
             planet.update(currentDate);
         }
 
+        // N-body physics for spacecraft - they feel gravity from everything
+        Vector3D sunPos = new Vector3D(0, 0, 0); // Sun at origin
+        Vector3D earthPos = planets.get(0).getPosition();
+        Vector3D marsPos = planets.get(1).getPosition();
+
+        // Compute accelerations for all spacecraft from all gravitational sources
         for (SpacecraftState sc : spacecraft) {
-            sc.update(currentDate);
+            if (!sc.isDestroyed()) {
+                sc.computeAcceleration(sunPos, SUN_MASS, earthPos, EARTH_MASS, marsPos, MARS_MASS);
+            }
         }
+
+        // Update spacecraft positions and velocities
+        for (SpacecraftState sc : spacecraft) {
+            if (!sc.isDestroyed()) {
+                sc.update(dt);
+            }
+        }
+
+        // Check for collisions
+        List<SpacecraftState> toRemove = new ArrayList<>();
+        for (SpacecraftState sc : spacecraft) {
+            if (sc.isDestroyed()) {
+                toRemove.add(sc);
+                continue;
+            }
+
+            // Check collision with Sun (radius ~696,000 km)
+            double distanceToSun = sc.getPosition().getNorm();
+            if (distanceToSun < 696000000.0) { // 696,000 km in meters
+                sc.setDestroyed(true);
+                toRemove.add(sc);
+                System.out.println(sc.getName() + " destroyed by collision with Sun!");
+                continue;
+            }
+
+            // Check collision with planets
+            for (PlanetState planet : planets) {
+                Vector3D relativePos = sc.getPosition().subtract(planet.getPosition());
+                double distanceToPlanet = relativePos.getNorm();
+
+                double planetRadius;
+                if (planet.getName().equals("Earth")) {
+                    planetRadius = 6371000.0; // Earth radius in meters
+                } else if (planet.getName().equals("Mars")) {
+                    planetRadius = 3389500.0; // Mars radius in meters
+                } else {
+                    planetRadius = 1000000.0; // Default 1000 km
+                }
+
+                if (distanceToPlanet < planetRadius) {
+                    sc.setDestroyed(true);
+                    toRemove.add(sc);
+                    System.out.println(sc.getName() + " destroyed by collision with " + planet.getName() + "!");
+                    break;
+                }
+            }
+        }
+
+        // Remove destroyed spacecraft
+        spacecraft.removeAll(toRemove);
     }
 
     public void stop() {
@@ -270,9 +308,7 @@ public class OrebitEngine {
         for (PlanetState planet : planets) {
             planet.update(currentDate);
         }
-        for (SpacecraftState sc : spacecraft) {
-            sc.update(currentDate);
-        }
+        // Keep spacecraft as-is (don't reset them)
     }
 
     public void increaseSpeed() {
@@ -314,9 +350,6 @@ public class OrebitEngine {
             for (PlanetState planet : planets) {
                 planet.update(currentDate);
             }
-            for (SpacecraftState sc : spacecraft) {
-                sc.update(currentDate);
-            }
         } catch (Exception e) {
             e.printStackTrace();
         }
@@ -330,9 +363,7 @@ public class OrebitEngine {
             for (PlanetState planet : planets) {
                 planet.update(currentDate);
             }
-            for (SpacecraftState sc : spacecraft) {
-                sc.update(currentDate);
-            }
+            // Spacecraft continue from their current positions
         } catch (Exception e) {
             e.printStackTrace();
             throw new RuntimeException("Invalid date", e);
