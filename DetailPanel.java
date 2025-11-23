@@ -1,9 +1,12 @@
 import org.orekit.time.AbsoluteDate;
+import org.orekit.utils.Constants;
 import org.hipparchus.geometry.euclidean.threed.Vector3D;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.util.List;
 
 /**
@@ -11,14 +14,24 @@ import java.util.List;
  */
 public class DetailPanel extends JPanel {
     private OrebitEngine engine;
-    private double earthMoonZoom = 0.5;  // Much lower to show moon orbit
-    private double marsZoom = 3.0;  // Much lower to show both moon orbits
+    private double earthMoonZoom = 0.00025;  // km to pixels scale
+    private double marsZoom = 0.005 ;  // km to pixels scale
 
     public DetailPanel(OrebitEngine engine) {
         this.engine = engine;
         setBackground(Color.BLACK);
         setLayout(new GridLayout(2, 1, 5, 5));
         setBorder(new EmptyBorder(10, 10, 10, 10));
+
+        // Add mouse listener for spacecraft spawning
+        addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (SwingUtilities.isRightMouseButton(e)) {
+                    spawnSpacecraftAtClick(e.getX(), e.getY());
+                }
+            }
+        });
     }
 
     public void zoomIn() {
@@ -66,15 +79,26 @@ public class DetailPanel extends JPanel {
         g2d.drawString(String.format("Zoom: %.2fx", earthMoonZoom / 0.5), centerX + 100, 20);
 
         PlanetState earth = engine.getPlanetByName("Earth");
-        if (earth == null) return;
+        if (earth == null) {
+            g2d.setColor(Color.RED);
+            g2d.drawString("ERROR: Earth is NULL!", centerX - 70, centerY);
+            return;
+        }
 
         MoonState moon = earth.getMoon();
-        if (moon == null) return;
+        if (moon == null) {
+            g2d.setColor(Color.RED);
+            g2d.drawString("ERROR: Moon is NULL!", centerX - 70, centerY);
+            System.out.println("DEBUG: Moon is null for Earth!");
+            return;
+        }
+
+        System.out.println("DEBUG: Moon found! Position: " + moon.getRelativePosition());
 
         // Draw Moon's orbit
         g2d.setColor(new Color(200, 200, 200, 80));
         g2d.setStroke(new BasicStroke(1));
-        int moonOrbitRadius = (int)(moon.getSemiMajorAxis() / 1000.0 * earthMoonZoom);
+        int moonOrbitRadius = (int) (moon.getSemiMajorAxis() / 1000.0 * earthMoonZoom);
         g2d.drawOval(centerX - moonOrbitRadius, centerY - moonOrbitRadius,
                 moonOrbitRadius * 2, moonOrbitRadius * 2);
 
@@ -86,10 +110,19 @@ public class DetailPanel extends JPanel {
         g2d.setFont(new Font("Arial", Font.PLAIN, 10));
         g2d.drawString("Earth", centerX - 15, centerY + earthRadius);
 
-        // Draw Moon
+        // Draw Moon at its actual position
         Vector3D moonPos = moon.getRelativePosition();
-        int moonX = (int)(centerX + moonPos.getX() / 1000.0 * earthMoonZoom);
-        int moonY = (int)(centerY + moonPos.getY() / 1000.0 * earthMoonZoom);
+        int moonX = (int) (centerX + moonPos.getX() / 1000.0 * earthMoonZoom);
+        int moonY = (int) (centerY + moonPos.getY() / 1000.0 * earthMoonZoom);
+
+        // DEBUG: Draw red line from Earth to Moon
+        g2d.setColor(Color.RED);
+        g2d.setStroke(new BasicStroke(2));
+        g2d.drawLine(centerX, centerY, moonX, moonY);
+
+        // DEBUG: Print actual distances
+        System.out.println(String.format("Moon screen pos: (%d, %d) from center (%d, %d)", moonX, moonY, centerX, centerY));
+        System.out.println(String.format("Moon distance: %.0f km, zoom: %.2f", moonPos.getNorm() / 1000.0, earthMoonZoom));
 
         g2d.setColor(new Color(200, 200, 200));
         int moonRadius = 8;
@@ -100,9 +133,10 @@ public class DetailPanel extends JPanel {
         // Info
         g2d.setFont(new Font("Monospace", Font.PLAIN, 10));
         int infoY = centerY + 120;
-        g2d.drawString(String.format("Moon Distance: %.0f km", moonPos.getNorm() / 1000.0), 10, infoY);
+        double moonDist = moonPos.getNorm() / 1000.0;
+        g2d.drawString(String.format("Moon Distance: %.0f km", moonDist), 10, infoY);
         infoY += 15;
-        g2d.drawString(String.format("Orbital Period: 27.3 days"), 10, infoY);
+        g2d.drawString(String.format("Orbital Period: %.1f days", moon.getOrbitalPeriod() / 86400.0), 10, infoY);
     }
 
     private void drawMarsSystem(Graphics2D g2d, int centerX, int centerY) {
@@ -116,9 +150,21 @@ public class DetailPanel extends JPanel {
         g2d.drawString(String.format("Zoom: %.2fx", marsZoom / 3.0), centerX + 100, centerY - 180);
 
         PlanetState mars = engine.getPlanetByName("Mars");
-        if (mars == null) return;
+        if (mars == null) {
+            g2d.setColor(Color.RED);
+            g2d.drawString("ERROR: Mars is NULL!", centerX - 70, centerY);
+            return;
+        }
 
         List<MoonState> moons = mars.getMoons();
+        if (moons == null || moons.isEmpty()) {
+            g2d.setColor(Color.RED);
+            g2d.drawString("ERROR: Mars moons NULL or empty! Count: " + (moons == null ? "null" : moons.size()), centerX - 100, centerY);
+            System.out.println("DEBUG: Mars moons list is " + (moons == null ? "null" : "empty"));
+            return;
+        }
+
+        System.out.println("DEBUG: Mars has " + moons.size() + " moons!");
 
         // Draw moon orbits
         g2d.setStroke(new BasicStroke(1));
@@ -126,7 +172,7 @@ public class DetailPanel extends JPanel {
             g2d.setColor(new Color(moon.getColor().getRed(),
                     moon.getColor().getGreen(),
                     moon.getColor().getBlue(), 80));
-            int orbitRadius = (int)(moon.getSemiMajorAxis() / 1000.0 * marsZoom);
+            int orbitRadius = (int) (moon.getSemiMajorAxis() / 1000.0 * marsZoom);
             g2d.drawOval(centerX - orbitRadius, centerY - orbitRadius,
                     orbitRadius * 2, orbitRadius * 2);
         }
@@ -139,11 +185,19 @@ public class DetailPanel extends JPanel {
         g2d.setFont(new Font("Arial", Font.PLAIN, 10));
         g2d.drawString("Mars", centerX - 12, centerY + marsRadius);
 
-        // Draw moons
+        // Draw moons at their actual positions
         for (MoonState moon : moons) {
             Vector3D moonPos = moon.getRelativePosition();
-            int moonX = (int)(centerX + moonPos.getX() / 1000.0 * marsZoom);
-            int moonY = (int)(centerY + moonPos.getY() / 1000.0 * marsZoom);
+            int moonX = (int) (centerX + moonPos.getX() / 1000.0 * marsZoom);
+            int moonY = (int) (centerY + moonPos.getY() / 1000.0 * marsZoom);
+
+            // DEBUG: Draw red line from Mars to moon
+            g2d.setColor(Color.RED);
+            g2d.setStroke(new BasicStroke(2));
+            g2d.drawLine(centerX, centerY, moonX, moonY);
+
+            System.out.println(String.format("%s screen pos: (%d, %d) from center (%d, %d)",
+                    moon.getName(), moonX, moonY, centerX, centerY));
 
             g2d.setColor(moon.getColor());
             int moonRadius = moon.getDisplayRadius();
@@ -157,11 +211,62 @@ public class DetailPanel extends JPanel {
         int infoY = centerY + 120;
         for (MoonState moon : moons) {
             Vector3D moonPos = moon.getRelativePosition();
+            double moonDist = moonPos.getNorm() / 1000.0;
+            double period = moon.getOrbitalPeriod() / 3600.0;
             g2d.drawString(String.format("%s: %.0f km | Period: %.2f hrs",
-                    moon.getName(),
-                    moonPos.getNorm() / 1000.0,
-                    moon.getOrbitalPeriod() / 3600.0), 10, infoY);
+                    moon.getName(), moonDist, period), 10, infoY);
             infoY += 15;
         }
+    }
+
+    private void spawnSpacecraftAtClick(int screenX, int screenY) {
+        int panelHeight = getHeight() / 2;
+
+        // Determine which panel was clicked
+        if (screenY < panelHeight) {
+            // Earth-Moon panel
+            spawnInEarthSystem(screenX, screenY, panelHeight / 2);
+        } else {
+            // Mars panel
+            spawnInMarsSystem(screenX, screenY - panelHeight, panelHeight / 2);
+        }
+    }
+
+    private void spawnInEarthSystem(int screenX, int screenY, int centerY) {
+        PlanetState earth = engine.getPlanetByName("Earth");
+        if (earth == null) return;
+
+        int centerX = getWidth() / 2;
+
+        // Convert screen coordinates to offset from Earth in km
+        double offsetX = (screenX - centerX) / earthMoonZoom * 1000.0; // meters
+        double offsetY = (screenY - centerY) / earthMoonZoom * 1000.0;
+
+        // Add Earth's position to get absolute solar system coordinates
+        Vector3D earthPos = earth.getPosition();
+        double x = earthPos.getX() + offsetX;
+        double y = earthPos.getY() + offsetY;
+
+        engine.spawnSpacecraft(x, y);
+        System.out.println("Spawned spacecraft near Earth");
+    }
+
+    private void spawnInMarsSystem(int screenX, int screenY, int centerY) {
+        PlanetState mars = engine.getPlanetByName("Mars");
+        if (mars == null) return;
+
+        int centerX = getWidth() / 2;
+
+        // Convert screen coordinates to offset from Mars in km
+        double offsetX = (screenX - centerX) / marsZoom * 1000.0; // meters
+        double offsetY = (screenY - centerY) / marsZoom * 1000.0;
+
+        // Add Mars's position to get absolute solar system coordinates
+        Vector3D marsPos = mars.getPosition();
+        double x = marsPos.getX() + offsetX;
+        double y = marsPos.getY() + offsetY;
+
+        engine.spawnSpacecraft(x, y);
+        System.out.println("Spawned spacecraft near Mars");
     }
 }
