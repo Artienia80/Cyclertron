@@ -87,19 +87,19 @@ public class OrebitEngine {
             KeplerianPropagator propagator = new KeplerianPropagator(orbit);
             PlanetState earth = new PlanetState("Earth", propagator, new Color(100, 149, 237), 12, a);
 
-            // Add Moon
-            Frame earthFrame = FramesFactory.getEME2000();
-            double moonA = 384400000.0; // meters
-            double moonE = 0.0549;
-            double moonI = Math.toRadians(5.145);
-            double moonOmega = 0.0;
-            double moonNode = 0.0;
-            double moonM = 0.0;
+            // Add Moon - using real parameters from JPL
+            double moonA = 384400000.0; // 384400 km in meters
+            double moonE = 0.0554;
+            double moonI = Math.toRadians(5.16);
+            double moonOmega = Math.toRadians(318.15);
+            double moonNode = Math.toRadians(125.08);
+            double moonM = Math.toRadians(135.27);
 
+            // Moon orbit relative to Earth, using Earth-centered frame
             Orbit moonOrbit = new KeplerianOrbit(
                     moonA, moonE, moonI, moonOmega, moonNode, moonM,
                     PositionAngleType.MEAN,
-                    earthFrame,
+                    sunCentricFrame,  // Using same frame, will add Earth position manually
                     initialDate,
                     3.986004418e14  // Earth's gravitational parameter
             );
@@ -142,17 +142,18 @@ public class OrebitEngine {
             KeplerianPropagator propagator = new KeplerianPropagator(orbit);
             PlanetState mars = new PlanetState("Mars", propagator, new Color(205, 92, 92), 10, a);
 
-            // Add Phobos and Deimos
-            Frame marsFrame = FramesFactory.getEME2000();
-
-            double phobosA = 9377000.0; // meters
+            // Add Phobos - using REAL parameters from JPL MAR099
+            double phobosA = 9375000.0; // 9375 km in meters
             double phobosE = 0.0151;
-            double phobosI = Math.toRadians(1.075);
+            double phobosI = Math.toRadians(1.1);
+            double phobosOmega = Math.toRadians(216.3); // ω
+            double phobosNode = Math.toRadians(169.2);
+            double phobosM = Math.toRadians(189.7); // M
 
             Orbit phobosOrbit = new KeplerianOrbit(
-                    phobosA, phobosE, phobosI, 0.0, 0.0, 0.0,
+                    phobosA, phobosE, phobosI, phobosOmega, phobosNode, phobosM,
                     PositionAngleType.MEAN,
-                    marsFrame,
+                    sunCentricFrame,  // Using same frame, will add Mars position manually
                     initialDate,
                     4.282837e13  // Mars's gravitational parameter
             );
@@ -160,14 +161,18 @@ public class OrebitEngine {
             KeplerianPropagator phobosPropagator = new KeplerianPropagator(phobosOrbit);
             MoonState phobos = new MoonState("Phobos", phobosPropagator, new Color(180, 140, 100), 6, phobosA);
 
-            double deimosA = 23460000.0; // meters
+            // Add Deimos - using REAL parameters from JPL MAR099
+            double deimosA = 23457000.0; // 23457 km in meters
             double deimosE = 0.0002;
-            double deimosI = Math.toRadians(1.788);
+            double deimosI = Math.toRadians(1.85);
+            double deimosOmega = Math.toRadians(0.0); // ω
+            double deimosNode = Math.toRadians(54.3);
+            double deimosM = Math.toRadians(205.0); // M
 
             Orbit deimosOrbit = new KeplerianOrbit(
-                    deimosA, deimosE, deimosI, 0.0, 0.0, Math.PI,
+                    deimosA, deimosE, deimosI, deimosOmega, deimosNode, deimosM,
                     PositionAngleType.MEAN,
-                    marsFrame,
+                    sunCentricFrame,  // Using same frame, will add Mars position manually
                     initialDate,
                     4.282837e13  // Mars's gravitational parameter
             );

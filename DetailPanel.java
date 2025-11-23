@@ -6,6 +6,7 @@ import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -16,10 +17,15 @@ public class DetailPanel extends JPanel {
     private OrebitSimulationPanel parentPanel;
     private double earthMoonZoom = 0.00025;  // km to pixels scale
     private double marsZoom = 0.005;  // km to pixels scale
+    private List<List<Point>> earthSpacecraftTrajectories;
+    private List<List<Point>> marsSpacecraftTrajectories;
+    private static final int MAX_TRAJECTORY_POINTS = 200;
 
     public DetailPanel(OrebitEngine engine, OrebitSimulationPanel parentPanel) {
         this.engine = engine;
         this.parentPanel = parentPanel;
+        this.earthSpacecraftTrajectories = new ArrayList<>();
+        this.marsSpacecraftTrajectories = new ArrayList<>();
         setBackground(Color.BLACK);
         setLayout(new GridLayout(2, 1, 5, 5));
         setBorder(new EmptyBorder(10, 10, 10, 10));
@@ -62,6 +68,9 @@ public class DetailPanel extends JPanel {
 
         int panelHeight = getHeight() / 2;
 
+        // Update trajectories
+        updateTrajectories();
+
         // Draw Earth-Moon system
         drawEarthMoonSystem(g2d, getWidth() / 2, panelHeight / 2);
 
@@ -94,6 +103,9 @@ public class DetailPanel extends JPanel {
                     moonOrbitRadius * 2, moonOrbitRadius * 2);
         }
 
+        // Draw spacecraft trajectories
+        drawSpacecraftTrajectories(g2d, earthSpacecraftTrajectories);
+
         // Draw Earth
         g2d.setColor(new Color(100, 149, 237));
         int earthRadius = 25;
@@ -102,11 +114,17 @@ public class DetailPanel extends JPanel {
         g2d.setFont(new Font("Arial", Font.PLAIN, 10));
         g2d.drawString("Earth", centerX - 15, centerY + earthRadius);
 
-        // Draw Moon at its actual position
+        // Draw Moon at its actual position (relative to Earth)
         if (moon != null) {
-            Vector3D moonPos = moon.getRelativePosition();
-            int moonX = (int) (centerX + moonPos.getX() / 1000.0 * earthMoonZoom);
-            int moonY = (int) (centerY + moonPos.getY() / 1000.0 * earthMoonZoom);
+            Vector3D moonRelPos = moon.getRelativePosition();
+
+            // Debug output
+            if (Math.random() < 0.01) { // Only print occasionally
+                System.out.println("Moon relative position: " + moonRelPos.getNorm() / 1000.0 + " km");
+            }
+
+            int moonX = (int) (centerX + moonRelPos.getX() / 1000.0 * earthMoonZoom);
+            int moonY = (int) (centerY + moonRelPos.getY() / 1000.0 * earthMoonZoom);
 
             g2d.setColor(new Color(200, 200, 200));
             int moonRadius = 8;
@@ -117,14 +135,14 @@ public class DetailPanel extends JPanel {
             // Info
             g2d.setFont(new Font("Monospace", Font.PLAIN, 10));
             int infoY = centerY + 120;
-            double moonDist = moonPos.getNorm() / 1000.0;
+            double moonDist = moonRelPos.getNorm() / 1000.0;
             g2d.drawString(String.format("Moon Distance: %.0f km", moonDist), 10, infoY);
             infoY += 15;
             g2d.drawString(String.format("Orbital Period: %.1f days", moon.getOrbitalPeriod() / 86400.0), 10, infoY);
         }
 
         // Draw spacecraft in this region
-        drawSpacecraftInRegion(g2d, earthPos, earthMoonZoom, centerX, centerY, 500000000.0);
+        drawSpacecraftInRegion(g2d, earthPos, earthMoonZoom, centerX, centerY, 1000000000.0);
     }
 
     private void drawMarsSystem(Graphics2D g2d, int centerX, int centerY) {
@@ -155,6 +173,9 @@ public class DetailPanel extends JPanel {
                         orbitRadius * 2, orbitRadius * 2);
             }
         }
+
+        // Draw spacecraft trajectories
+        drawSpacecraftTrajectories(g2d, marsSpacecraftTrajectories);
 
         // Draw Mars
         g2d.setColor(new Color(205, 92, 92));
@@ -192,7 +213,90 @@ public class DetailPanel extends JPanel {
         }
 
         // Draw spacecraft in this region
-        drawSpacecraftInRegion(g2d, marsPos, marsZoom, centerX, centerY, 50000000.0);
+        drawSpacecraftInRegion(g2d, marsPos, marsZoom, centerX, centerY, 1000000000.0);
+    }
+
+    private void updateTrajectories() {
+        int panelHeight = getHeight() / 2;
+        int earthCenterX = getWidth() / 2;
+        int earthCenterY = panelHeight / 2;
+        int marsCenterX = getWidth() / 2;
+        int marsCenterY = panelHeight + panelHeight / 2;
+
+        PlanetState earth = engine.getPlanetByName("Earth");
+        PlanetState mars = engine.getPlanetByName("Mars");
+
+        if (earth == null || mars == null) return;
+
+        Vector3D earthPos = earth.getPosition();
+        Vector3D marsPos = mars.getPosition();
+
+        List<SpacecraftState> spacecraftList = engine.getSpacecraft();
+
+        // Add new trajectory lists for newly spawned spacecraft
+        while (earthSpacecraftTrajectories.size() < spacecraftList.size()) {
+            earthSpacecraftTrajectories.add(new ArrayList<>());
+        }
+        while (marsSpacecraftTrajectories.size() < spacecraftList.size()) {
+            marsSpacecraftTrajectories.add(new ArrayList<>());
+        }
+
+        // Update Earth trajectories
+        for (int i = 0; i < spacecraftList.size(); i++) {
+            SpacecraftState sc = spacecraftList.get(i);
+            Vector3D scPos = sc.getPosition();
+            Vector3D relativeToEarth = scPos.subtract(earthPos);
+
+            if (relativeToEarth.getNorm() < 1000000000.0) {
+                int x = (int) (earthCenterX + relativeToEarth.getX() / 1000.0 * earthMoonZoom);
+                int y = (int) (earthCenterY + relativeToEarth.getY() / 1000.0 * earthMoonZoom);
+
+                List<Point> trajectory = earthSpacecraftTrajectories.get(i);
+                trajectory.add(new Point(x, y));
+                if (trajectory.size() > MAX_TRAJECTORY_POINTS) {
+                    trajectory.remove(0);
+                }
+            }
+        }
+
+        // Update Mars trajectories
+        for (int i = 0; i < spacecraftList.size(); i++) {
+            SpacecraftState sc = spacecraftList.get(i);
+            Vector3D scPos = sc.getPosition();
+            Vector3D relativeToMars = scPos.subtract(marsPos);
+
+            if (relativeToMars.getNorm() < 1000000000.0) {
+                int x = (int) (marsCenterX + relativeToMars.getX() / 1000.0 * marsZoom);
+                int y = (int) (marsCenterY + relativeToMars.getY() / 1000.0 * marsZoom);
+
+                List<Point> trajectory = marsSpacecraftTrajectories.get(i);
+                trajectory.add(new Point(x, y));
+                if (trajectory.size() > MAX_TRAJECTORY_POINTS) {
+                    trajectory.remove(0);
+                }
+            }
+        }
+    }
+
+    private void drawSpacecraftTrajectories(Graphics2D g2d, List<List<Point>> trajectories) {
+        g2d.setStroke(new BasicStroke(2));
+        List<SpacecraftState> spacecraftList = engine.getSpacecraft();
+
+        for (int i = 0; i < trajectories.size() && i < spacecraftList.size(); i++) {
+            List<Point> trajectory = trajectories.get(i);
+            if (trajectory.size() > 1) {
+                SpacecraftState sc = spacecraftList.get(i);
+                g2d.setColor(new Color(sc.getColor().getRed(),
+                        sc.getColor().getGreen(),
+                        sc.getColor().getBlue(), 200));
+
+                for (int j = 0; j < trajectory.size() - 1; j++) {
+                    Point p1 = trajectory.get(j);
+                    Point p2 = trajectory.get(j + 1);
+                    g2d.drawLine(p1.x, p1.y, p2.x, p2.y);
+                }
+            }
+        }
     }
 
     private void drawSpacecraftInRegion(Graphics2D g2d, Vector3D centralBody, double zoom,
@@ -238,9 +342,12 @@ public class DetailPanel extends JPanel {
 
         int centerX = getWidth() / 2;
 
-        // Convert screen coordinates to offset from Earth in km
+        // Convert screen coordinates to offset from Earth in meters
         double offsetX = (screenX - centerX) / earthMoonZoom * 1000.0; // meters
         double offsetY = (screenY - centerY) / earthMoonZoom * 1000.0;
+
+        System.out.println(String.format("Detail panel click: screen(%d, %d) -> offset(%.0f km, %.0f km)",
+                screenX, screenY, offsetX/1000.0, offsetY/1000.0));
 
         // Add Earth's position to get absolute solar system coordinates
         Vector3D earthPos = earth.getPosition();
@@ -249,6 +356,13 @@ public class DetailPanel extends JPanel {
                 earthPos.getY() + offsetY,
                 0
         );
+
+        System.out.println(String.format("Earth position: (%.4f AU, %.4f AU)",
+                earthPos.getX() / Constants.IAU_2012_ASTRONOMICAL_UNIT,
+                earthPos.getY() / Constants.IAU_2012_ASTRONOMICAL_UNIT));
+        System.out.println(String.format("Spawn position: (%.4f AU, %.4f AU)",
+                position.getX() / Constants.IAU_2012_ASTRONOMICAL_UNIT,
+                position.getY() / Constants.IAU_2012_ASTRONOMICAL_UNIT));
 
         parentPanel.spawnSpacecraftAtPosition(position);
         System.out.println("Spawned spacecraft near Earth");
@@ -260,9 +374,12 @@ public class DetailPanel extends JPanel {
 
         int centerX = getWidth() / 2;
 
-        // Convert screen coordinates to offset from Mars in km
+        // Convert screen coordinates to offset from Mars in meters
         double offsetX = (screenX - centerX) / marsZoom * 1000.0; // meters
         double offsetY = (screenY - centerY) / marsZoom * 1000.0;
+
+        System.out.println(String.format("Detail panel click: screen(%d, %d) -> offset(%.0f km, %.0f km)",
+                screenX, screenY, offsetX/1000.0, offsetY/1000.0));
 
         // Add Mars's position to get absolute solar system coordinates
         Vector3D marsPos = mars.getPosition();
@@ -271,6 +388,13 @@ public class DetailPanel extends JPanel {
                 marsPos.getY() + offsetY,
                 0
         );
+
+        System.out.println(String.format("Mars position: (%.4f AU, %.4f AU)",
+                marsPos.getX() / Constants.IAU_2012_ASTRONOMICAL_UNIT,
+                marsPos.getY() / Constants.IAU_2012_ASTRONOMICAL_UNIT));
+        System.out.println(String.format("Spawn position: (%.4f AU, %.4f AU)",
+                position.getX() / Constants.IAU_2012_ASTRONOMICAL_UNIT,
+                position.getY() / Constants.IAU_2012_ASTRONOMICAL_UNIT));
 
         parentPanel.spawnSpacecraftAtPosition(position);
         System.out.println("Spawned spacecraft near Mars");

@@ -36,7 +36,7 @@ public class OrebitSimulationPanel extends JPanel {
     private boolean isPaused = false;
     private List<List<Point>> trajectories;
     private List<List<Point>> spacecraftTrajectories;
-    private static final int MAX_TRAJECTORY_POINTS = 1000;
+    private static final int MAX_TRAJECTORY_POINTS = 200;
 
     private DetailPanel detailPanel;
     private JPanel mainPanel;
@@ -423,18 +423,26 @@ public class OrebitSimulationPanel extends JPanel {
                 double distToMars = position.subtract(marsPos).getNorm();
 
                 Vector3D centralBody;
+                Vector3D centralBodyVelocity;
                 double centralMass;
 
                 // Determine which body we're closest to
-                if (distToEarth < distToSun && distToEarth < distToMars) {
+                // Use sphere of influence: within 1 million km = orbit the planet
+                if (distToEarth < 1000000000.0) { // 1 million km
                     centralBody = earthPos;
+                    centralBodyVelocity = engine.getPlanets().get(0).getVelocity();
                     centralMass = 5.972e24; // Earth mass
-                } else if (distToMars < distToSun && distToMars < distToEarth) {
+                    System.out.println("Orbiting Earth");
+                } else if (distToMars < 1000000000.0) { // 1 million km
                     centralBody = marsPos;
+                    centralBodyVelocity = engine.getPlanets().get(1).getVelocity();
                     centralMass = 6.39e23; // Mars mass
+                    System.out.println("Orbiting Mars");
                 } else {
                     centralBody = sunPos;
+                    centralBodyVelocity = new Vector3D(0, 0, 0);
                     centralMass = 1.989e30; // Sun mass
+                    System.out.println("Orbiting Sun");
                 }
 
                 // Calculate orbital velocity: v = sqrt(GM/r)
@@ -442,9 +450,12 @@ public class OrebitSimulationPanel extends JPanel {
                 double distance = r.getNorm();
                 double orbitalSpeed = Math.sqrt(G * centralMass / distance);
 
-                // Velocity perpendicular to radius vector
+                // Velocity perpendicular to radius vector (in planet's reference frame)
                 Vector3D perpendicular = new Vector3D(-r.getY(), r.getX(), 0).normalize();
-                return perpendicular.scalarMultiply(orbitalSpeed);
+                Vector3D relativeVelocity = perpendicular.scalarMultiply(orbitalSpeed);
+
+                // Add the central body's velocity to get absolute velocity
+                return relativeVelocity.add(centralBodyVelocity);
         }
     }
 
